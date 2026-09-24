@@ -452,7 +452,7 @@ export default function Dashboard() {
   const handleSignOut = async () => {
     try {
       setIsSigningOut(true);
-      const auth = getFirebaseAuth();
+      const auth = await getFirebaseAuth();
       await auth.signOut();
       router.push('/login');
       router.refresh();

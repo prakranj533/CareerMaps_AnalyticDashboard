@@ -20,7 +20,7 @@ export default function LoginClient() {
     setError(null);
 
     try {
-      const auth = getFirebaseAuth();
+      const auth = await getFirebaseAuth();
       const provider = new firebase.auth.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
 

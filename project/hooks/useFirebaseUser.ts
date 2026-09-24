@@ -18,12 +18,24 @@ export function useFirebaseUser(): AuthState {
       return;
     }
 
-    const auth = getFirebaseAuth();
-    const unsubscribe = auth.onAuthStateChanged((nextUser) => {
-      setState({ user: nextUser, loading: false });
-    });
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
 
-    return () => unsubscribe();
+    getFirebaseAuth()
+      .then((auth) => {
+        if (!active) return;
+        unsubscribe = auth.onAuthStateChanged((nextUser) => {
+          setState({ user: nextUser, loading: false });
+        });
+      })
+      .catch(() => {
+        if (active) setState({ user: null, loading: false });
+      });
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, []);
 
   return state;
