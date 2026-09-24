@@ -4,6 +4,8 @@ import { encodeShgSlug } from '@/lib/shg-slug';
 import ShgStudentsClient from './_client';
 
 // Fetch all unique SHG names at build time for static export
+export const dynamicParams = false;
+
 export async function generateStaticParams() {
   try {
     const rows = await fetchSheetTabAsObjects({ sheetId: SHEET_ID, gid: SHEET_GID });
