@@ -9,20 +9,28 @@ export function RegisterSW() {
     }
 
     if ('serviceWorker' in navigator) {
-      const registerServiceWorker = async () => {
+      const clearStaleWorker = async () => {
         try {
-          const registration = await navigator.serviceWorker.register('/sw.js');
-          if (process.env.NODE_ENV === 'development') {
-            console.info('[ServiceWorker] registered:', registration.scope);
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+
+          if ('caches' in window) {
+            const cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
+          }
+
+          if (navigator.serviceWorker.controller && !sessionStorage.getItem('service-worker-reset')) {
+            sessionStorage.setItem('service-worker-reset', 'true');
+            window.location.reload();
           }
         } catch (error) {
           if (process.env.NODE_ENV === 'development') {
-            console.warn('[ServiceWorker] registration failed:', error);
+            console.warn('[ServiceWorker] cleanup failed:', error);
           }
         }
       };
 
-      registerServiceWorker();
+      clearStaleWorker();
     }
   }, []);
 
