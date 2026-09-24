@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useFirebaseUser } from "@/hooks/useFirebaseUser";
+import { shouldBypassFirebaseAuth } from "@/lib/firebase/client";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -13,6 +14,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading } = useFirebaseUser();
+  const authBypassed = shouldBypassFirebaseAuth();
 
   const callbackUrl = useMemo(() => {
     if (!pathname || pathname === "/") return "/";
@@ -20,11 +22,15 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   }, [pathname]);
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!authBypassed && !loading && !user) {
       const search = callbackUrl && callbackUrl !== "/" ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : "";
       router.replace(`/login${search}`);
     }
-  }, [loading, user, callbackUrl, router]);
+  }, [authBypassed, loading, user, callbackUrl, router]);
+
+  if (authBypassed) {
+    return <>{children}</>;
+  }
 
   if (loading) {
     return (

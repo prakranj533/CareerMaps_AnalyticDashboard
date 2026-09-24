@@ -35,7 +35,7 @@ import {
   PolarRadiusAxis,
   ComposedChart,
   Area,
-  AreaChart,
+  LabelList,
   Legend
 } from 'recharts';
 import Link from 'next/link';
@@ -48,7 +48,7 @@ import { CORE_SUBJECTS } from '@/lib/subject-categories';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarUI } from '@/components/ui/calendar';
-import { getFirebaseAuth } from '@/lib/firebase/client';
+import { getFirebaseAuth, shouldBypassFirebaseAuth } from '@/lib/firebase/client';
 
 // Helpers (local)
 function subjectFor(videoName: string): string {
@@ -258,15 +258,23 @@ export default function Dashboard() {
       return `${fmt(start)} – ${fmt(end)}`;
     };
 
-    return Array.from(bucket.values())
-      .sort((a, b) => a.start.getTime() - b.start.getTime())
-      .map((entry) => ({
-        week: formatSpan(entry.start),
-        sessions: entry.sessions,
-        avgScore: Number((entry.totalScore / entry.sessions).toFixed(1)),
-        highScore: entry.high,
-        lowScore: entry.low,
-      }));
+    const populatedWeeks = Array.from(bucket.values()).sort((a, b) => a.start.getTime() - b.start.getTime());
+    if (!populatedWeeks.length) return [];
+
+    const continuousWeeks = [];
+    const lastWeekStart = populatedWeeks[populatedWeeks.length - 1].start;
+    for (const cursor = new Date(populatedWeeks[0].start); cursor <= lastWeekStart; cursor.setDate(cursor.getDate() + 7)) {
+      const entry = bucket.get(cursor.toISOString());
+      continuousWeeks.push({
+        week: formatSpan(cursor),
+        weekLabel: cursor.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        sessions: entry?.sessions ?? 0,
+        avgScore: entry ? Number((entry.totalScore / entry.sessions).toFixed(1)) : 0,
+        highScore: entry?.high ?? 0,
+        lowScore: entry?.low ?? 0,
+      });
+    }
+    return continuousWeeks;
   }, [filteredData]);
 
   const latestWeek = weeklyMomentum.length ? weeklyMomentum[weeklyMomentum.length - 1] : null;
@@ -278,16 +286,19 @@ export default function Dashboard() {
     }));
   }, [weeklyMomentum]);
 
+  const previousWeek = classesTrend.length > 1 ? classesTrend[classesTrend.length - 2] : null;
+  const latestWeekChange = latestWeek && previousWeek ? latestWeek.sessions - previousWeek.sessions : null;
+
   const averageWeeklySessions = useMemo(() => {
-    if (!weeklyMomentum.length) return 0;
-    const totalSessions = weeklyMomentum.reduce((sum, entry) => sum + entry.sessions, 0);
-    return Math.round((totalSessions / weeklyMomentum.length) * 10) / 10;
-  }, [weeklyMomentum]);
+    if (!classesTrend.length) return 0;
+    const totalSessions = classesTrend.reduce((sum, entry) => sum + entry.sessions, 0);
+    return Math.round((totalSessions / classesTrend.length) * 10) / 10;
+  }, [classesTrend]);
 
   const peakSessionsWeek = useMemo(() => {
-    if (!weeklyMomentum.length) return null;
-    return weeklyMomentum.reduce((peak, current) => (current.sessions > peak.sessions ? current : peak), weeklyMomentum[0]);
-  }, [weeklyMomentum]);
+    if (!classesTrend.length) return null;
+    return classesTrend.reduce((peak, current) => (current.sessions > peak.sessions ? current : peak), classesTrend[0]);
+  }, [classesTrend]);
 
   // Metrics with fidelity tweaks
   const computedMetrics = useMemo(() => {
@@ -593,15 +604,17 @@ export default function Dashboard() {
                 {isReloading && <Loader2 className="h-4 w-4 animate-spin" />}
                 Refresh now
               </Button>
-              <Button
-                variant="default"
-                className="gap-2 bg-[#0B6B41] hover:bg-[#095836]"
-                onClick={handleSignOut}
-                disabled={isSigningOut}
-              >
-                <LogOut className="h-4 w-4" />
-                {isSigningOut ? 'Signing out…' : 'Sign out'}
-              </Button>
+              {!shouldBypassFirebaseAuth() && (
+                <Button
+                  variant="default"
+                  className="gap-2 bg-[#0B6B41] hover:bg-[#095836]"
+                  onClick={handleSignOut}
+                  disabled={isSigningOut}
+                >
+                  <LogOut className="h-4 w-4" />
+                  {isSigningOut ? 'Signing out…' : 'Sign out'}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -724,7 +737,7 @@ export default function Dashboard() {
           </div> */}
 
           <TabsContent value="overview" className="space-y-6 tabs-entrance-animation">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Enhanced Score Distribution Chart */}
               <Card className="glass-morphism edu-glow chart-container relative card-entrance-animation card-breathing pie-chart-container overview-card">
                 <CardHeader className="pb-3 space-y-3">
@@ -953,7 +966,7 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              <Card className="glass-morphism edu-glow chart-container relative card-entrance-animation overview-card" style={{ animationDelay: '0.25s' }}>
+              <Card className="glass-morphism edu-glow chart-container relative card-entrance-animation overview-card lg:col-span-2" style={{ animationDelay: '0.25s' }}>
                 <CardHeader className="pb-3 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                     <div className="flex items-center gap-3">
@@ -975,7 +988,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <p className="overview-subtext">
-                    Visual momentum of sessions delivered each week. Highlights filtered data only.
+                    Classes delivered week by week for the last 8 weeks. Empty weeks are shown as zero.
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-5">
@@ -984,88 +997,70 @@ export default function Dashboard() {
                       Not enough weekly data to draw the momentum chart yet.
                     </div>
                   ) : (
-                    <div className="h-[220px] relative">
+                    <div className="h-[300px] rounded-xl border border-emerald-100 bg-gradient-to-b from-emerald-50/60 to-white px-2 pt-4">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={classesTrend} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                        <BarChart data={classesTrend} margin={{ top: 24, right: 12, left: 0, bottom: 12 }}>
                           <defs>
-                            <linearGradient id="classesGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="rgba(16, 185, 129, 0.7)" />
-                              <stop offset="70%" stopColor="rgba(59, 130, 246, 0.35)" />
-                              <stop offset="100%" stopColor="rgba(59, 130, 246, 0)" />
+                            <linearGradient id="classesBarGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#10B981" />
+                              <stop offset="100%" stopColor="#059669" />
                             </linearGradient>
                           </defs>
-                          <CartesianGrid strokeDasharray="3 6" stroke="rgba(148, 163, 184, 0.3)" />
-                          <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#64748b' }} angle={-8} textAnchor="end" height={50} />
+                          <CartesianGrid vertical={false} strokeDasharray="4 4" stroke="rgba(148, 163, 184, 0.35)" />
+                          <XAxis
+                            dataKey="weekLabel"
+                            tick={{ fontSize: 11, fontWeight: 600, fill: '#475569' }}
+                            axisLine={{ stroke: '#CBD5E1' }}
+                            tickLine={false}
+                            interval={0}
+                            minTickGap={4}
+                            height={38}
+                          />
                           <YAxis
-                            yAxisId="left"
-                            tick={{ fontSize: 10, fill: '#64748b' }}
+                            tick={{ fontSize: 11, fill: '#64748b' }}
                             axisLine={false}
                             tickLine={false}
                             allowDecimals={false}
-                          />
-                          <YAxis
-                            yAxisId="right"
-                            orientation="right"
-                            tick={{ fontSize: 10, fill: '#94a3b8' }}
-                            axisLine={false}
-                            tickLine={false}
-                            dataKey="avgScore"
-                            domain={[0, 100]}
+                            domain={[0, 'dataMax + 2']}
+                            width={32}
+                            label={{ value: 'Classes', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11 }}
                           />
                           <Tooltip
-                            cursor={{ stroke: 'rgba(59, 130, 246, 0.35)', strokeWidth: 2 }}
+                            cursor={{ fill: 'rgba(16, 185, 129, 0.08)' }}
                             contentStyle={{
-                              background: 'rgba(255, 255, 255, 0.9)',
+                              background: 'rgba(255, 255, 255, 0.96)',
                               borderRadius: 12,
-                              border: '1px solid rgba(59, 130, 246, 0.15)',
-                              boxShadow: '0 10px 30px rgba(15, 23, 42, 0.1)',
-                              fontSize: '0.75rem',
+                              border: '1px solid rgba(16, 185, 129, 0.25)',
+                              boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)',
+                              fontSize: '0.8rem',
                               padding: '10px 14px',
                             }}
-                            formatter={(value, name) => {
-                              if (name === 'sessions') return [`${value} classes`, 'Sessions'];
-                              if (name === 'avgScore') return [`${value}`, 'Avg Score'];
-                              return [value, name];
-                            }}
+                            formatter={(value) => [`${value} classes`, 'Classes delivered']}
                           />
-                          <Area
-                            type="monotone"
+                          <Bar
                             dataKey="sessions"
-                            yAxisId="left"
-                            stroke="rgba(16, 185, 129, 0.85)"
-                            strokeWidth={3}
-                            fill="url(#classesGradient)"
-                            activeDot={{ r: 6, stroke: 'rgba(59, 130, 246, 0.6)', strokeWidth: 2, fill: '#fff' }}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="avgScore"
-                            yAxisId="right"
-                            stroke="#3B82F6"
-                            strokeWidth={2}
-                            dot={{ r: 4, strokeWidth: 2, stroke: '#fff', fill: '#3B82F6' }}
-                            className="chart-build-progress"
-                          />
-                        </AreaChart>
+                            name="Classes delivered"
+                            fill="url(#classesBarGradient)"
+                            radius={[7, 7, 0, 0]}
+                            maxBarSize={52}
+                          >
+                            <LabelList dataKey="sessions" position="top" fill="#047857" fontSize={12} fontWeight={700} />
+                          </Bar>
+                        </BarChart>
                       </ResponsiveContainer>
-                      <div className="absolute inset-x-4 bottom-0 flex flex-wrap items-center justify-between gap-3 text-[10px] text-slate-500">
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
-                          Weekly session counts
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex h-2 w-2 rounded-full bg-blue-500"></span>
-                          Average score overlay
-                        </div>
-                      </div>
                     </div>
                   )}
                   <div className="grid gap-3 md:grid-cols-2 text-xs text-slate-600">
                     <div className="p-3 rounded-xl bg-emerald-50/80 border border-emerald-200/70">
-                      <p className="font-semibold text-emerald-700">Last week</p>
+                      <p className="font-semibold text-emerald-700">Latest week</p>
                       <p>
                         {latestWeek ? `${latestWeek.week} • ${latestWeek.sessions} classes` : 'No weekly data yet'}
                       </p>
+                      {latestWeekChange !== null && (
+                        <p className={`mt-1 font-semibold ${latestWeekChange > 0 ? 'text-emerald-700' : latestWeekChange < 0 ? 'text-rose-600' : 'text-slate-600'}`}>
+                          {latestWeekChange > 0 ? '+' : ''}{latestWeekChange} vs previous week
+                        </p>
+                      )}
                     </div>
                     <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200/70">
                       <p className="font-semibold text-blue-700">Peak volume</p>

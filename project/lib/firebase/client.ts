@@ -11,8 +11,16 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
+export function hasFirebaseConfig() {
+  return Boolean(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId);
+}
+
+export function shouldBypassFirebaseAuth() {
+  return process.env.NODE_ENV === "development" && !hasFirebaseConfig();
+}
+
 export function getFirebaseApp() {
-  if (!firebaseConfig.apiKey || !firebaseConfig.authDomain || !firebaseConfig.projectId) {
+  if (!hasFirebaseConfig()) {
     throw new Error("Firebase client configuration is incomplete. Check NEXT_PUBLIC_FIREBASE_* env vars.");
   }
 
