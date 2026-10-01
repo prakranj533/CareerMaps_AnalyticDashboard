@@ -16,7 +16,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
-import { ChevronLeft, GraduationCap, Phone, Users } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CalendarDays, ChevronLeft, ClipboardList, GraduationCap, Phone, Users } from 'lucide-react';
 import { STUDENT_SHEET_MAP } from '../student-sheet-map';
 import { decodeShgSlug } from '@/lib/shg-slug';
 
@@ -156,6 +158,7 @@ const extractStudentTableRows = (rows: Record<string, any>[]) => {
 export default function ShgStudentsClient({ params }: { params: { slug: string } }) {
   const shgName = decodeShgSlug(params.slug);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
 
   const mappedConfig = useMemo(() => {
     if (STUDENT_SHEET_MAP[shgName]) return STUDENT_SHEET_MAP[shgName];
@@ -340,7 +343,7 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
             <CardContent className="py-16 text-center space-y-3">
               <div className="text-4xl">🗂️</div>
               <p className="text-slate-700 font-medium">Roster coming soon</p>
-              <p className="text-sm text-slate-500">Connect this SHG's Google Sheet to view learner details once it is available.</p>
+              <p className="text-sm text-slate-500">Connect this SHG&apos;s Google Sheet to view learner details once it is available.</p>
             </CardContent>
           )}
           {sheetId && (
@@ -370,7 +373,17 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
                   {!isLoading && filteredStudents.map((student) => (
                     <TableRow key={`${student.name}-${student.slNo}`} className="hover:bg-slate-50">
                       <TableCell className="font-medium text-slate-600">{student.slNo}</TableCell>
-                      <TableCell><div className="font-semibold text-slate-900">{student.name}</div></TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStudent(student)}
+                          aria-label={`View ${student.name}'s attendance and marksheet`}
+                          className="text-left rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))]"
+                        >
+                          <span className="block font-semibold text-[hsl(var(--primary))] hover:underline">{student.name}</span>
+                          <span className="text-xs text-slate-500">View student progress</span>
+                        </button>
+                      </TableCell>
                       <TableCell className="text-sm text-slate-700">{student.mother}</TableCell>
                       <TableCell className="text-sm text-slate-700">{student.father}</TableCell>
                       <TableCell>
@@ -393,7 +406,76 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
             </ScrollArea>
           )}
         </Card>
+
+        <Dialog open={Boolean(selectedStudent)} onOpenChange={(open) => !open && setSelectedStudent(null)}>
+          <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+            <DialogHeader>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Student progress · {shgName}</p>
+              <DialogTitle className="text-2xl">{selectedStudent?.name ?? 'Student progress'}</DialogTitle>
+              <DialogDescription>
+                Review the student profile, attendance history, and marksheets.
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedStudent && (
+              <Tabs defaultValue="overview" className="mt-2">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="attendance">Attendance</TabsTrigger>
+                  <TabsTrigger value="marksheets">Marksheet</TabsTrigger>
+                </TabsList>
+                <TabsContent value="overview" className="mt-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <StudentDetail label="Class" value={selectedStudent.grade} icon={<GraduationCap className="h-4 w-4" />} />
+                    <StudentDetail label="Sl. No" value={String(selectedStudent.slNo)} icon={<Users className="h-4 w-4" />} />
+                    <StudentDetail label="Mother" value={selectedStudent.mother} />
+                    <StudentDetail label="Father" value={selectedStudent.father} />
+                    <StudentDetail label="Mobile" value={selectedStudent.phone === '—' ? 'Not shared' : selectedStudent.phone} icon={<Phone className="h-4 w-4" />} />
+                  </div>
+                </TabsContent>
+                <TabsContent value="attendance" className="mt-4">
+                  <ProgressEmptyState
+                    icon={<CalendarDays className="h-6 w-6" />}
+                    title="Attendance data isn’t connected yet"
+                    description="Connect this SHG’s student attendance records to show sessions attended, absences, and attendance rate here."
+                  />
+                </TabsContent>
+                <TabsContent value="marksheets" className="mt-4">
+                  <ProgressEmptyState
+                    icon={<ClipboardList className="h-6 w-6" />}
+                    title="No marksheets available"
+                    description="Connect a student assessment sheet to display subject-wise marks, exam results, and progress over time."
+                  />
+                </TabsContent>
+              </Tabs>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
+    </div>
+  );
+}
+
+function StudentDetail({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+        {icon}
+        {label}
+      </p>
+      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value || '—'}</p>
+    </div>
+  );
+}
+
+function ProgressEmptyState({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm">
+        {icon}
+      </div>
+      <h3 className="mt-4 font-semibold text-slate-800">{title}</h3>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">{description}</p>
     </div>
   );
 }
