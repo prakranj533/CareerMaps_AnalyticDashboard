@@ -16,6 +16,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RANGE_PRESET_OPTIONS, createRangeState, describeRangeState, getRangeBounds, isDateWithinBounds } from '@/lib/date-filters';
 
 const normalizeKey = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+const canonicalizeShgName = (value: unknown) => String(value ?? '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .replace(/\s*\(\s*(\d{2}:\d{2}:\d{2})\s*\)$/, ' ($1)');
+const normalizeShgName = (value: unknown) => canonicalizeShgName(value).toLowerCase();
 const normalizeHeader = (value: unknown) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const STUDENT_NAME_HEADERS = new Set([
   'studentname',
@@ -142,20 +147,25 @@ export default function ShgPage() {
   const hasExplicitBounds = bounds.from !== null || bounds.to !== null;
 
   const shgCounts = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { name: string; count: number }>();
     rows.forEach((r: any) => {
-      const k = String(r['SHG Name'] ?? '').trim();
-      if (!k) return;
+      const rawName = String(r['SHG Name'] ?? '');
+      const key = normalizeShgName(rawName);
+      if (!key) return;
       const dateValue = normalizeGvizDate(r['Date Created']);
       const date = dateValue ? new Date(dateValue) : null;
       if (hasExplicitBounds) {
         if (!date || !isDateWithinBounds(date, bounds)) return;
       }
-      map.set(k, (map.get(k) || 0) + 1);
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(key, { name: canonicalizeShgName(rawName), count: 1 });
+      }
     });
-    const arr = Array.from(map.entries()).map(([name, count]) => ({ name, count }));
-    return arr
-      .filter((i) => i.name.toLowerCase().includes(query.toLowerCase()))
+    return Array.from(map.values())
+      .filter((item) => item.name.toLowerCase().includes(query.toLowerCase()))
       .sort((a, b) => b.count - a.count);
   }, [rows, query, hasExplicitBounds, bounds]);
 
