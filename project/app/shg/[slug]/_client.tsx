@@ -18,11 +18,15 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CalendarDays, ChevronLeft, ClipboardList, GraduationCap, Phone, Users } from 'lucide-react';
+import { ChevronLeft, GraduationCap, Phone, Users } from 'lucide-react';
 import { STUDENT_SHEET_MAP } from '../student-sheet-map';
+import { STUDENT_ROSTER_IMPORT } from '../student-roster-import';
+import { StudentProgress } from './_components/student-progress';
 import { decodeShgSlug } from '@/lib/shg-slug';
 
 type StudentRecord = {
+  id: string;
+  registrationId?: string;
   slNo: number;
   name: string;
   mother: string;
@@ -157,6 +161,20 @@ const extractStudentTableRows = (rows: Record<string, any>[]) => {
 
 export default function ShgStudentsClient({ params }: { params: { slug: string } }) {
   const shgName = decodeShgSlug(params.slug);
+  const groupCode = shgName.match(/\(\s*(\d{2}:\d{2}:\d{2})\s*\)/)?.[1];
+  const importedStudents: StudentRecord[] = useMemo(() => {
+    const importedRosterRows = groupCode ? STUDENT_ROSTER_IMPORT[groupCode] : undefined;
+    return importedRosterRows?.map(([registrationId, name, grade], index) => ({
+      id: `${groupCode}-${registrationId}`,
+      registrationId,
+      slNo: index + 1,
+      name,
+      mother: '—',
+      father: '—',
+      grade,
+      phone: '—',
+    })) ?? [];
+  }, [groupCode]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
 
@@ -178,8 +196,9 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
     enabled: Boolean(sheetId),
   });
 
-  const isLoading = Boolean(sheetId && loading);
+  const isLoading = Boolean(sheetId && loading && importedStudents.length === 0);
   const hasLiveSheet = Boolean(sheetId);
+  const hasLiveRoster = hasLiveSheet || importedStudents.length > 0;
 
   const relevantRows = useMemo(() => {
     if (!enabled || !sheetId) return [];
@@ -216,9 +235,12 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
       const fatherRaw = readField(row, ["Father's Name", 'Father Name', 'Father'], '—');
       const classRaw = readField(row, ['Class', 'Grade', 'Std'], '—');
       const phoneRaw = readField(row, ['Mobile Number', 'Phone', 'Guardian Contact', 'Contact Number'], '—');
+      const registrationId = cellText(readField(row, ['Registration', 'Registration ID', 'Registration No', 'Registration Number'], ''));
 
       const name = String(nameRaw).trim();
       return {
+        id: `${groupCode ?? 'legacy'}-${registrationId || idx + 1}`,
+        registrationId: registrationId || undefined,
         slNo: Number(slNoRaw) || idx + 1,
         name,
         mother: String(motherRaw || '—'),
@@ -229,10 +251,13 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
     });
 
     return parsed.filter((s) => s.name);
-  }, [rosterData.rows, enabled, sheetId]);
+  }, [rosterData.rows, enabled, sheetId, groupCode]);
 
-  const students: StudentRecord[] = hasLiveSheet ? sheetStudents : [];
-  const rosterMetadata = hasLiveSheet ? rosterData.metadata : undefined;
+  const students: StudentRecord[] = useMemo(
+    () => importedStudents.length ? importedStudents : hasLiveSheet ? sheetStudents : [],
+    [importedStudents, hasLiveSheet, sheetStudents]
+  );
+  const rosterMetadata = hasLiveSheet && importedStudents.length === 0 ? rosterData.metadata : undefined;
 
   const metadataItems = useMemo(() => {
     if (!rosterMetadata) return [];
@@ -260,7 +285,7 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
     const query = searchTerm.trim().toLowerCase();
     if (!query) return students;
     return students.filter((student) => {
-      const haystack = [student.slNo, student.name, student.mother, student.father, student.grade, student.phone]
+      const haystack = [student.slNo, student.registrationId, student.name, student.mother, student.father, student.grade, student.phone]
         .filter(Boolean).join(' ').toLowerCase();
       return haystack.includes(query);
     });
@@ -275,14 +300,16 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
               <ChevronLeft className="h-4 w-4" /> Back to SHGs
             </Link>
             <Badge variant="outline" className="border-emerald-200 text-emerald-700 bg-emerald-50">
-              {enabled ? 'Live sheet sync' : 'Design preview'}
+              {importedStudents.length ? 'Imported student list' : enabled ? 'Live sheet sync' : 'Design preview'}
             </Badge>
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Student roster</p>
             <h1 className="text-3xl font-semibold text-slate-900 mt-1">{shgName}</h1>
             <p className="text-sm text-slate-500 mt-2 max-w-3xl">
-              Learner directory listing guardian touch points, grade levels, and verified contact numbers.
+              {importedStudents.length
+                ? 'Live student roster with registration IDs and class levels from the October 2026 expansion list.'
+                : 'Learner directory listing guardian touch points, grade levels, and verified contact numbers.'}
             </p>
             {!!metadataItems.length && (
               <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -303,7 +330,7 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
           <StatTile icon={<Users className="h-5 w-5" />} label="Total students" value={stats.total} subtle="Across this SHG" />
           <StatTile icon={<Phone className="h-5 w-5" />} label="Reachable guardians" value={`${stats.withPhone}/${stats.total}`} subtle="Numbers on file" />
           <StatTile icon={<GraduationCap className="h-5 w-5" />} label="Classes represented" value={stats.uniqueClasses} subtle={stats.highlightedClass ? `${stats.highlightedClass[0]} most common` : '—'} />
-          <StatTile icon={<Users className="h-5 w-5" />} label="Sheet status" value={sheetId ? (isLoading ? 'Refreshing…' : 'Synced') : 'Awaiting sheet'} subtle={sheetId ? 'Auto-refreshing every min' : 'Add this SHG to the sheet'} />
+          <StatTile icon={<Users className="h-5 w-5" />} label="Roster status" value={importedStudents.length ? 'Imported' : sheetId ? (isLoading ? 'Refreshing…' : 'Synced') : 'Awaiting sheet'} subtle={importedStudents.length ? 'October 2026 student list' : sheetId ? 'Auto-refreshing every min' : 'Add this SHG to the sheet'} />
         </div>
 
         {sheetId && error && (
@@ -322,18 +349,18 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
           <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-xl">Student directory</CardTitle>
-              <p className="text-sm text-slate-500">Includes Sl.No, parent information, class and contact number.</p>
+              <p className="text-sm text-slate-500">{importedStudents.length ? 'Includes student name, registration ID, and class.' : 'Includes Sl.No, parent information, class and contact number.'}</p>
             </div>
-            {!sheetId && (
+            {!hasLiveRoster && (
               <Badge variant="secondary" className="text-xs uppercase tracking-wide">Roster sheet not connected</Badge>
             )}
           </CardHeader>
 
           <Separator />
-          {sheetId ? (
+          {hasLiveRoster ? (
             <CardContent className="border-b">
               <div className="relative">
-                <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search students, guardians, class..." className="pl-3" />
+                <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search students, registration ID, class..." className="pl-3" />
               </div>
               {searchTerm && (
                 <p className="text-xs text-slate-500 mt-2">Showing {filteredStudents.length} of {students.length} learners</p>
@@ -346,23 +373,23 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
               <p className="text-sm text-slate-500">Connect this SHG&apos;s Google Sheet to view learner details once it is available.</p>
             </CardContent>
           )}
-          {sheetId && (
+          {hasLiveRoster && (
             <ScrollArea className="h-[60vh] pr-3">
               <Table>
                 <TableHeader className="sticky top-0 bg-white/90 backdrop-blur border-b">
                   <TableRow>
                     <TableHead className="w-20">Sl. No</TableHead>
                     <TableHead>Name</TableHead>
-                    <TableHead>Mother</TableHead>
-                    <TableHead>Father</TableHead>
+                    {!importedStudents.length && <TableHead>Mother</TableHead>}
+                    {!importedStudents.length && <TableHead>Father</TableHead>}
                     <TableHead>Class</TableHead>
-                    <TableHead className="text-right">Mobile</TableHead>
+                    {!importedStudents.length && <TableHead className="text-right">Mobile</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading && (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-24">
+                      <TableCell colSpan={importedStudents.length ? 3 : 6} className="h-24">
                         <div className="animate-pulse space-y-2">
                           <div className="h-4 bg-slate-200 rounded" />
                           <div className="h-4 bg-slate-200 rounded w-3/4" />
@@ -371,7 +398,7 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
                     </TableRow>
                   )}
                   {!isLoading && filteredStudents.map((student) => (
-                    <TableRow key={`${student.name}-${student.slNo}`} className="hover:bg-slate-50">
+                    <TableRow key={student.id} className="hover:bg-slate-50">
                       <TableCell className="font-medium text-slate-600">{student.slNo}</TableCell>
                       <TableCell>
                         <button
@@ -384,19 +411,21 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
                           <span className="text-xs text-slate-500">View student progress</span>
                         </button>
                       </TableCell>
-                      <TableCell className="text-sm text-slate-700">{student.mother}</TableCell>
-                      <TableCell className="text-sm text-slate-700">{student.father}</TableCell>
+                      {!importedStudents.length && <TableCell className="text-sm text-slate-700">{student.mother}</TableCell>}
+                      {!importedStudents.length && <TableCell className="text-sm text-slate-700">{student.father}</TableCell>}
                       <TableCell>
                         <Badge variant="outline" className="bg-indigo-50 border-indigo-200 text-indigo-700">{student.grade || 'NA'}</Badge>
                       </TableCell>
-                      <TableCell className="text-right text-sm font-medium text-slate-900">
-                        {student.phone !== '—' ? student.phone : <span className="text-slate-400">Not shared</span>}
-                      </TableCell>
+                      {!importedStudents.length && (
+                        <TableCell className="text-right text-sm font-medium text-slate-900">
+                          {student.phone !== '—' ? student.phone : <span className="text-slate-400">Not shared</span>}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                   {!isLoading && filteredStudents.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="h-32 text-center text-slate-500">
+                      <TableCell colSpan={importedStudents.length ? 3 : 6} className="h-32 text-center text-slate-500">
                         {students.length === 0 ? 'No students recorded yet.' : 'No students match your search.'}
                       </TableCell>
                     </TableRow>
@@ -427,25 +456,17 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
                 <TabsContent value="overview" className="mt-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <StudentDetail label="Class" value={selectedStudent.grade} icon={<GraduationCap className="h-4 w-4" />} />
-                    <StudentDetail label="Sl. No" value={String(selectedStudent.slNo)} icon={<Users className="h-4 w-4" />} />
-                    <StudentDetail label="Mother" value={selectedStudent.mother} />
-                    <StudentDetail label="Father" value={selectedStudent.father} />
-                    <StudentDetail label="Mobile" value={selectedStudent.phone === '—' ? 'Not shared' : selectedStudent.phone} icon={<Phone className="h-4 w-4" />} />
+                    <StudentDetail label={selectedStudent.registrationId ? 'Registration ID' : 'Sl. No'} value={selectedStudent.registrationId ?? String(selectedStudent.slNo)} icon={<Users className="h-4 w-4" />} />
+                    {selectedStudent.mother !== '—' && <StudentDetail label="Mother" value={selectedStudent.mother} />}
+                    {selectedStudent.father !== '—' && <StudentDetail label="Father" value={selectedStudent.father} />}
+                    {selectedStudent.phone !== '—' && <StudentDetail label="Mobile" value={selectedStudent.phone} icon={<Phone className="h-4 w-4" />} />}
                   </div>
                 </TabsContent>
                 <TabsContent value="attendance" className="mt-4">
-                  <ProgressEmptyState
-                    icon={<CalendarDays className="h-6 w-6" />}
-                    title="Attendance data isn’t connected yet"
-                    description="Connect this SHG’s student attendance records to show sessions attended, absences, and attendance rate here."
-                  />
+                  <StudentProgress student={selectedStudent} section="attendance" />
                 </TabsContent>
                 <TabsContent value="marksheets" className="mt-4">
-                  <ProgressEmptyState
-                    icon={<ClipboardList className="h-6 w-6" />}
-                    title="No marksheets available"
-                    description="Connect a student assessment sheet to display subject-wise marks, exam results, and progress over time."
-                  />
+                  <StudentProgress student={selectedStudent} section="marksheets" />
                 </TabsContent>
               </Tabs>
             )}
@@ -464,18 +485,6 @@ function StudentDetail({ label, value, icon }: { label: string; value: string; i
         {label}
       </p>
       <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value || '—'}</p>
-    </div>
-  );
-}
-
-function ProgressEmptyState({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm">
-        {icon}
-      </div>
-      <h3 className="mt-4 font-semibold text-slate-800">{title}</h3>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">{description}</p>
     </div>
   );
 }

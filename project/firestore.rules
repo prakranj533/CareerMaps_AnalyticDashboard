@@ -1,0 +1,31 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /studentRecords/{studentId}/{recordType}/{recordId} {
+      allow read: if request.auth != null
+        && recordType in ['attendance', 'marksheets'];
+      allow create, update: if request.auth != null
+        && recordType == 'attendance'
+        && request.resource.data.keys().hasOnly(['date', 'status', 'markedBy', 'markedByEmail', 'markedAt'])
+        && request.resource.data.date == recordId
+        && request.resource.data.status in ['present', 'absent', 'late'];
+      allow create: if request.auth != null
+        && recordType == 'marksheets'
+        && request.resource.data.keys().hasOnly(['date', 'subject', 'score', 'maxScore', 'answers', 'attachmentUrl', 'attachmentName', 'markedBy', 'markedByEmail', 'markedAt'])
+        && request.resource.data.date is string
+        && request.resource.data.subject is string
+        && request.resource.data.subject.size() > 0
+        && request.resource.data.score is number
+        && request.resource.data.maxScore is number
+        && request.resource.data.maxScore > 0
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= request.resource.data.maxScore
+        && request.resource.data.answers is string
+        && request.resource.data.answers.size() <= 50000
+        && request.resource.data.attachmentUrl is string
+        && request.resource.data.attachmentName is string;
+      allow update, delete: if false;
+    }
+  }
+}

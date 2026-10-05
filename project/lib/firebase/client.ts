@@ -1,5 +1,4 @@
 import firebase from "firebase/compat/app";
-import "firebase/compat/auth";
 
 type FirebaseConfig = {
   apiKey?: string;
@@ -54,7 +53,16 @@ export function getFirebaseApp() {
 }
 
 export async function getFirebaseAuth() {
+  await import("firebase/compat/auth");
   return (await getFirebaseApp()).auth();
+}
+
+export async function getFirebaseStudentRecords() {
+  await Promise.all([
+    import("firebase/compat/firestore"),
+    import("firebase/compat/storage"),
+  ]);
+  return getFirebaseApp();
 }
 
 export { firebase };

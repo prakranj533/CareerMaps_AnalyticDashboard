@@ -11,6 +11,7 @@ import { Users, Search, Filter } from 'lucide-react';
 import { encodeShgSlug } from '@/lib/shg-slug';
 import { fetchSheetTabAsObjects, normalizeGvizDate } from '@/lib/sheets';
 import { STUDENT_SHEET_MAP, type StudentSheetConfig } from './student-sheet-map';
+import { STUDENT_ROSTER_IMPORT } from './student-roster-import';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RANGE_PRESET_OPTIONS, createRangeState, describeRangeState, getRangeBounds, isDateWithinBounds } from '@/lib/date-filters';
 
@@ -81,6 +82,11 @@ const getStudentSheetConfig = (shgName: string) => {
   const normalizedName = normalizeKey(shgName);
   return STUDENT_SHEET_MAP[shgName] ?? Object.entries(STUDENT_SHEET_MAP)
     .find(([name]) => normalizeKey(name) === normalizedName)?.[1];
+};
+
+const getImportedStudentCount = (shgName: string) => {
+  const code = shgName.match(/\(\s*(\d{2}:\d{2}:\d{2})\s*\)/)?.[1];
+  return code ? STUDENT_ROSTER_IMPORT[code]?.length : undefined;
 };
 
 export default function ShgPage() {
@@ -156,6 +162,13 @@ export default function ShgPage() {
   const totalClasses = shgCounts.reduce((sum, item) => sum + item.count, 0);
   const connectedRosters = new Map<string, number>();
   shgCounts.forEach((item) => {
+    const importedCount = getImportedStudentCount(item.name);
+    if (typeof importedCount === 'number') {
+      const code = item.name.match(/\(\s*(\d{2}:\d{2}:\d{2})\s*\)/)?.[1];
+      if (code) connectedRosters.set(`import:${code}`, importedCount);
+      return;
+    }
+
     const config = getStudentSheetConfig(item.name);
     const count = studentCounts[normalizeKey(item.name)];
     if (config && typeof count === 'number') {
@@ -244,8 +257,9 @@ export default function ShgPage() {
         {shgCounts.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {shgCounts.map((s) => {
-              const hasRoster = Boolean(getStudentSheetConfig(s.name));
-              const studentCount = studentCounts[normalizeKey(s.name)];
+              const importedCount = getImportedStudentCount(s.name);
+              const hasRoster = typeof importedCount === 'number' || Boolean(getStudentSheetConfig(s.name));
+              const studentCount = importedCount ?? studentCounts[normalizeKey(s.name)];
               const studentLabel = !hasRoster
                 ? 'Roster not connected'
                 : studentCount === undefined
