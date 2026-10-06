@@ -43,6 +43,7 @@ import { Users, BookOpen, CirclePlay as PlayCircle, TrendingUp, Search, Filter, 
 import type { DashboardRecord } from '@/lib/dashboard-data';
 import { useSheetDashboard } from '@/hooks/useSheetDashboard';
 import { normalizeGvizDate } from '@/lib/sheets';
+import { normalizeShgName } from '@/lib/shg-slug';
 import { SHEET_ID, SHEET_GID, DEFAULT_REFRESH_MS } from '@/lib/config';
 import { CORE_SUBJECTS } from '@/lib/subject-categories';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -306,7 +307,7 @@ export default function Dashboard() {
     const shgSet = new Set<string>();
     let scoreSum = 0; let scoreCount = 0;
     for (const r of filteredData) {
-      const key = r.shgName.trim().toLowerCase();
+      const key = normalizeShgName(r.shgName);
       if (key) shgSet.add(key);
       if (!Number.isNaN(r.finalScore)) { scoreSum += r.finalScore; scoreCount++; }
     }

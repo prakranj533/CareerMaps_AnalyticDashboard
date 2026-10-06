@@ -1,5 +1,11 @@
 const hasWindow = typeof window !== "undefined" && typeof window.btoa === "function";
 
+export const canonicalizeShgName = (value: unknown) => String(value ?? "")
+  .replace(/\s+/g, " ")
+  .trim()
+  .replace(/\s*\(\s*(\d{2}:\d{2}:\d{2})\s*\)$/, " ($1)");
+export const normalizeShgName = (value: unknown) => canonicalizeShgName(value).toLowerCase();
+
 const toBase64 = (value: string): string => {
   if (hasWindow) {
     return window.btoa(unescape(encodeURIComponent(value)));

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Users, Search, Filter } from 'lucide-react';
-import { encodeShgSlug } from '@/lib/shg-slug';
+import { canonicalizeShgName, encodeShgSlug, normalizeShgName } from '@/lib/shg-slug';
 import { fetchSheetTabAsObjects, normalizeGvizDate } from '@/lib/sheets';
 import { STUDENT_SHEET_MAP, type StudentSheetConfig } from './student-sheet-map';
 import { STUDENT_ROSTER_IMPORT } from './student-roster-import';
@@ -16,11 +16,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RANGE_PRESET_OPTIONS, createRangeState, describeRangeState, getRangeBounds, isDateWithinBounds } from '@/lib/date-filters';
 
 const normalizeKey = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
-const canonicalizeShgName = (value: unknown) => String(value ?? '')
-  .replace(/\s+/g, ' ')
-  .trim()
-  .replace(/\s*\(\s*(\d{2}:\d{2}:\d{2})\s*\)$/, ' ($1)');
-const normalizeShgName = (value: unknown) => canonicalizeShgName(value).toLowerCase();
 const normalizeHeader = (value: unknown) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const STUDENT_NAME_HEADERS = new Set([
   'studentname',
