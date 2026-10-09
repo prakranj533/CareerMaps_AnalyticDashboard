@@ -12,6 +12,7 @@ import { canonicalizeShgName, encodeShgSlug, normalizeShgName } from '@/lib/shg-
 import { fetchSheetTabAsObjects, normalizeGvizDate } from '@/lib/sheets';
 import { STUDENT_SHEET_MAP, type StudentSheetConfig } from './student-sheet-map';
 import { STUDENT_ROSTER_IMPORT } from './student-roster-import';
+import { LEGACY_STUDENT_ROSTER_IMPORT } from './legacy-student-roster-import';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RANGE_PRESET_OPTIONS, createRangeState, describeRangeState, getRangeBounds, isDateWithinBounds } from '@/lib/date-filters';
 
@@ -86,7 +87,12 @@ const getStudentSheetConfig = (shgName: string) => {
 
 const getImportedStudentCount = (shgName: string) => {
   const code = shgName.match(/\(\s*(\d{2}:\d{2}:\d{2})\s*\)/)?.[1];
-  return code ? STUDENT_ROSTER_IMPORT[code]?.length : undefined;
+  if (!code) return undefined;
+
+  const currentCount = STUDENT_ROSTER_IMPORT[code]?.length;
+  const legacyCount = LEGACY_STUDENT_ROSTER_IMPORT[code]?.length;
+  if (currentCount === undefined && legacyCount === undefined) return undefined;
+  return (currentCount ?? 0) + (legacyCount ?? 0);
 };
 
 export default function ShgPage() {

@@ -21,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChevronLeft, GraduationCap, Phone, Users } from 'lucide-react';
 import { STUDENT_SHEET_MAP } from '../student-sheet-map';
 import { STUDENT_ROSTER_IMPORT } from '../student-roster-import';
+import { LEGACY_STUDENT_ROSTER_IMPORT } from '../legacy-student-roster-import';
 import { StudentProgress } from './_components/student-progress';
 import { decodeShgSlug } from '@/lib/shg-slug';
 
@@ -163,17 +164,29 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
   const shgName = decodeShgSlug(params.slug);
   const groupCode = shgName.match(/\(\s*(\d{2}:\d{2}:\d{2})\s*\)/)?.[1];
   const importedStudents: StudentRecord[] = useMemo(() => {
-    const importedRosterRows = groupCode ? STUDENT_ROSTER_IMPORT[groupCode] : undefined;
-    return importedRosterRows?.map(([registrationId, name, grade], index) => ({
-      id: `${groupCode}-${registrationId}`,
-      registrationId,
-      slNo: index + 1,
-      name,
-      mother: '—',
-      father: '—',
-      grade,
-      phone: '—',
-    })) ?? [];
+    const importedRosterRows = groupCode ? STUDENT_ROSTER_IMPORT[groupCode] ?? [] : [];
+    const legacyRosterRows = groupCode ? LEGACY_STUDENT_ROSTER_IMPORT[groupCode] ?? [] : [];
+    return [
+      ...importedRosterRows.map(([registrationId, name, grade], index) => ({
+        id: `${groupCode}-${registrationId}`,
+        registrationId,
+        slNo: index + 1,
+        name,
+        mother: '—',
+        father: '—',
+        grade,
+        phone: '—',
+      })),
+      ...legacyRosterRows.map(([studentNumber, name, grade, mother, father], index) => ({
+        id: `${groupCode}-legacy-${studentNumber}`,
+        slNo: Number(studentNumber) || index + 1,
+        name,
+        mother: mother || '—',
+        father: father || '—',
+        grade,
+        phone: '—',
+      })),
+    ];
   }, [groupCode]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
