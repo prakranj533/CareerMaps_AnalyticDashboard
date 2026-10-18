@@ -24,7 +24,7 @@ import { Search, Trophy, ClipboardList, TriangleAlert as AlertTriangle } from 'l
 import { normalizeGvizDate, type GvizRowObject } from '@/lib/sheets';
 import { buildShgRankings, parsePunchInRows } from '@/lib/punch-in';
 
-type RankingSort = 'composite' | 'quality' | 'students' | 'total' | 'classes';
+type RankingSort = 'composite' | 'quality' | 'students' | 'classes';
 
 const OVERALL_PERIOD = 'overall';
 
@@ -116,9 +116,6 @@ export function ShgRanking({ auditRows, punchRows, punchLoading, punchError }: S
       case 'students':
         arr.sort((a, b) => b.avgStudentsPerClass - a.avgStudentsPerClass);
         break;
-      case 'total':
-        arr.sort((a, b) => b.totalStudents - a.totalStudents);
-        break;
       case 'classes':
         arr.sort((a, b) => b.classes - a.classes);
         break;
@@ -201,7 +198,6 @@ export function ShgRanking({ auditRows, punchRows, punchLoading, punchError }: S
                 <SelectItem value="composite">Overall (quality + students)</SelectItem>
                 <SelectItem value="quality">Quality score</SelectItem>
                 <SelectItem value="students">Students per class</SelectItem>
-                <SelectItem value="total">Total students</SelectItem>
                 <SelectItem value="classes">Classes held</SelectItem>
               </SelectContent>
             </Select>
@@ -228,7 +224,6 @@ export function ShgRanking({ auditRows, punchRows, punchLoading, punchError }: S
                     <TableHead>SHG Center</TableHead>
                     <TableHead className="text-right">Classes</TableHead>
                     <TableHead className="text-right">Students / Class</TableHead>
-                    <TableHead className="text-right">Total Students</TableHead>
                     <TableHead className="text-right">Subjects</TableHead>
                     <TableHead className="text-right">Quality Avg</TableHead>
                     <TableHead className="text-right">Rank Score</TableHead>
@@ -254,7 +249,6 @@ export function ShgRanking({ auditRows, punchRows, punchLoading, punchError }: S
                       <TableCell className="font-medium text-slate-800">{r.displayName}</TableCell>
                       <TableCell className="text-right">{r.classes}</TableCell>
                       <TableCell className="text-right">{r.avgStudentsPerClass}</TableCell>
-                      <TableCell className="text-right">{r.totalStudents}</TableCell>
                       <TableCell className="text-right">{r.subjectsTaught}</TableCell>
                       <TableCell className="text-right">
                         {r.qualityAvg === null ? (
@@ -318,7 +312,7 @@ export function ShgRanking({ auditRows, punchRows, punchLoading, punchError }: S
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <div className="text-center p-3 rounded-lg bg-emerald-50/70 border border-emerald-100">
                   <div className="text-xs font-medium text-emerald-700">Classes</div>
                   <div className="text-xl font-bold text-emerald-800">{activeCenterRanking.classes}</div>
@@ -326,10 +320,6 @@ export function ShgRanking({ auditRows, punchRows, punchLoading, punchError }: S
                 <div className="text-center p-3 rounded-lg bg-blue-50/70 border border-blue-100">
                   <div className="text-xs font-medium text-blue-700">Students / Class</div>
                   <div className="text-xl font-bold text-blue-800">{activeCenterRanking.avgStudentsPerClass}</div>
-                </div>
-                <div className="text-center p-3 rounded-lg bg-indigo-50/70 border border-indigo-100">
-                  <div className="text-xs font-medium text-indigo-700">Total Students</div>
-                  <div className="text-xl font-bold text-indigo-800">{activeCenterRanking.totalStudents}</div>
                 </div>
                 <div className="text-center p-3 rounded-lg bg-purple-50/70 border border-purple-100">
                   <div className="text-xs font-medium text-purple-700">Subjects</div>
