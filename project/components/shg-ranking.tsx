@@ -21,10 +21,29 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Search, Trophy, ClipboardList, TriangleAlert as AlertTriangle } from 'lucide-react';
-import type { GvizRowObject } from '@/lib/sheets';
+import { normalizeGvizDate, type GvizRowObject } from '@/lib/sheets';
 import { buildShgRankings, parsePunchInRows } from '@/lib/punch-in';
 
 type RankingSort = 'composite' | 'quality' | 'students' | 'total' | 'classes';
+
+const OVERALL_PERIOD = 'overall';
+
+const getMonthKey = (date: Date | null) => {
+  if (!date || Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const getAuditMonthKey = (value: unknown) => {
+  const normalized = normalizeGvizDate(value);
+  if (!normalized) return null;
+  const date = new Date(normalized);
+  return getMonthKey(date);
+};
+
+const formatMonth = (key: string) => {
+  const [year, month] = key.split('-').map(Number);
+  return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+};
 
 interface ShgRankingProps {
   auditRows: GvizRowObject[];
@@ -43,17 +62,46 @@ const getScoreColor = (score: number) => {
 export function ShgRanking({ auditRows, punchRows, punchLoading, punchError }: ShgRankingProps) {
   const [rankingSort, setRankingSort] = useState<RankingSort>('composite');
   const [rankingSearch, setRankingSearch] = useState('');
+  const [rankingPeriod, setRankingPeriod] = useState(OVERALL_PERIOD);
   const [selectedCenterKey, setSelectedCenterKey] = useState<string | null>(null);
 
   const punchInRecords = useMemo(() => parsePunchInRows(punchRows), [punchRows]);
 
+  // Build the period menu from both punch-in and audit dates so months with
+  // only one type of activity remain available for review.
+  const availableMonths = useMemo(() => {
+    const months = new Set<string>();
+    punchInRecords.forEach((record) => {
+      const key = getMonthKey(record.timestamp);
+      if (key) months.add(key);
+    });
+    auditRows.forEach((row) => {
+      const key = getAuditMonthKey(row['Date Created']);
+      if (key) months.add(key);
+    });
+    return Array.from(months).sort((a, b) => b.localeCompare(a));
+  }, [punchInRecords, auditRows]);
+
+  // A monthly ranking uses only classes and audit scores from that calendar
+  // month. Overall uses the complete history. All known audit SHG names are
+  // retained so centers with no activity in the selected month still show 0.
   const { rankings, byKey: punchByCenter } = useMemo(() => {
+    const filteredPunchRecords = rankingPeriod === OVERALL_PERIOD
+      ? punchInRecords
+      : punchInRecords.filter((record) => getMonthKey(record.timestamp) === rankingPeriod);
     const audit = auditRows.map((r) => ({
       shgName: String(r['SHG Name'] ?? ''),
-      finalScore: Number(r['Final Score (100)'] ?? NaN),
+      finalScore: rankingPeriod === OVERALL_PERIOD || getAuditMonthKey(r['Date Created']) === rankingPeriod
+        ? Number(r['Final Score (100)'] ?? NaN)
+        : NaN,
     }));
-    return buildShgRankings(punchInRecords, audit);
-  }, [punchInRecords, auditRows]);
+    return buildShgRankings(filteredPunchRecords, audit);
+  }, [punchInRecords, auditRows, rankingPeriod]);
+
+  const periodLabel = rankingPeriod === OVERALL_PERIOD ? 'Overall' : formatMonth(rankingPeriod);
+  const periodRecordCount = rankingPeriod === OVERALL_PERIOD
+    ? punchInRecords.length
+    : punchInRecords.filter((record) => getMonthKey(record.timestamp) === rankingPeriod).length;
 
   const sortedRankings = useMemo(() => {
     const term = rankingSearch.trim().toLowerCase();
@@ -117,8 +165,8 @@ export function ShgRanking({ auditRows, punchRows, punchLoading, punchError }: S
               <span className="chart-status-badge overview-status-badge bg-amber-100 text-amber-700 border-amber-200 font-black shimmer-pulse">
                 LEADERBOARD
               </span>
-              <span className="font-semibold text-slate-700">{rankings.length} SHG centers</span>
-              <span className="overview-meta-label">{punchInRecords.length} punch-in records</span>
+              <span className="font-semibold text-slate-700">{rankings.length} SHG centers · {periodLabel}</span>
+              <span className="overview-meta-label">{periodRecordCount} punch-in records</span>
             </div>
           </div>
           <p className="overview-subtext">
@@ -134,6 +182,17 @@ export function ShgRanking({ auditRows, punchRows, punchLoading, punchError }: S
                 className="pl-10 glass-morphism edu-glow"
               />
             </div>
+            <Select value={rankingPeriod} onValueChange={setRankingPeriod}>
+              <SelectTrigger className="w-full sm:w-52 glass-morphism edu-glow">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                <SelectItem value={OVERALL_PERIOD}>Overall</SelectItem>
+                {availableMonths.map((month) => (
+                  <SelectItem key={month} value={month}>{formatMonth(month)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={rankingSort} onValueChange={(v) => setRankingSort(v as RankingSort)}>
               <SelectTrigger className="w-full sm:w-56 glass-morphism edu-glow">
                 <SelectValue placeholder="Rank by" />
