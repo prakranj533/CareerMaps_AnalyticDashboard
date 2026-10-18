@@ -2,6 +2,39 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email in ['prakranj@gmail.com', 'gloryjain9@gmail.com'];
+    }
+
+    // One doc per Google account, keyed by lowercased email.
+    // Users may create their own doc (approved == false) and update only the
+    // login-tracking fields; they can never change `approved`. Admins can do
+    // everything.
+    match /userAccess/{email} {
+      allow read: if isAdmin()
+        || (request.auth != null && request.auth.token.email.lower() == email);
+      allow create: if isAdmin()
+        || (request.auth != null
+            && request.auth.token.email.lower() == email
+            && request.resource.data.approved == false);
+      allow update: if isAdmin()
+        || (request.auth != null
+            && request.auth.token.email.lower() == email
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['uid', 'displayName', 'lastSeenAt', 'loginCount']));
+      allow delete: if isAdmin();
+    }
+
+    // Append-only login audit log. Users append their own events; only admins read.
+    match /loginEvents/{eventId} {
+      allow read: if isAdmin();
+      allow create: if request.auth != null
+        && request.resource.data.email == request.auth.token.email.lower();
+      allow update, delete: if false;
+    }
+
     match /studentRecords/{studentId}/{recordType}/{recordId} {
       allow read: if request.auth != null
         && recordType in ['attendance', 'marksheets'];
