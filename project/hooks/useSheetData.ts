@@ -5,6 +5,7 @@ import { fetchSheetTabAsObjects, GvizRowObject } from '@/lib/sheets';
 interface UseSheetDataParams {
   sheetId?: string;
   gid?: string | number;
+  sheet?: string;
   refreshMs?: number;
   enabled?: boolean;
 }
@@ -12,6 +13,7 @@ interface UseSheetDataParams {
 export function useSheetData({
   sheetId,
   gid,
+  sheet,
   refreshMs = 30000,
   enabled = true,
 }: UseSheetDataParams) {
@@ -28,7 +30,7 @@ export function useSheetData({
     if (!isActive || !effectiveSheetId) return;
     try {
       setError(null);
-      const data = await fetchSheetTabAsObjects({ sheetId: effectiveSheetId, gid, signal });
+      const data = await fetchSheetTabAsObjects({ sheetId: effectiveSheetId, gid, sheet, signal });
       const cleaned = data.filter((o) => Object.values(o).some((v) => v !== null && v !== ''));
       setRows(cleaned);
       setLastUpdatedAt(new Date());
@@ -64,7 +66,7 @@ export function useSheetData({
       controller.abort();
       if (timer.current) window.clearInterval(timer.current);
     };
-  }, [effectiveSheetId, gid, refreshMs, isActive]);
+  }, [effectiveSheetId, gid, sheet, refreshMs, isActive]);
 
   const reload = () => {
     if (!isActive) return Promise.resolve();

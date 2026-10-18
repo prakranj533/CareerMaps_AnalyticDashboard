@@ -8,11 +8,17 @@ export interface GvizRowObject {
 export async function fetchSheetTabAsObjects(params: {
   sheetId: string;
   gid?: string | number;
+  sheet?: string;
   signal?: AbortSignal;
 }): Promise<GvizRowObject[]> {
-  const { sheetId, gid, signal } = params;
+  const { sheetId, gid, sheet, signal } = params;
   const base = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`;
-  const url = gid !== undefined && gid !== null ? `${base}&gid=${gid}` : base;
+  const url =
+    sheet !== undefined && sheet !== null && sheet !== ''
+      ? `${base}&sheet=${encodeURIComponent(sheet)}`
+      : gid !== undefined && gid !== null
+        ? `${base}&gid=${gid}`
+        : base;
 
   const res = await fetch(url, { cache: 'no-store', signal });
   const text = await res.text();
