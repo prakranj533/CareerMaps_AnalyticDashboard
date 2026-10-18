@@ -9,3 +9,6 @@ export const DEFAULT_REFRESH_MS = Number(process.env.NEXT_PUBLIC_REFRESH_MS || 3
 export const PUNCH_IN_SHEET_ID =
   process.env.NEXT_PUBLIC_PUNCH_IN_SHEET_ID || '18HJF-96eP2fioYvg90guMficXrokek7Zmlchoz_5d_s';
 export const PUNCH_IN_SHEET_NAME = process.env.NEXT_PUBLIC_PUNCH_IN_SHEET_NAME || 'punch in';
+
+// Shared "Student list" tab in the main audit sheet — single source for all SHG rosters
+export const STUDENT_LIST_GID = process.env.NEXT_PUBLIC_STUDENT_LIST_GID || '626064681';

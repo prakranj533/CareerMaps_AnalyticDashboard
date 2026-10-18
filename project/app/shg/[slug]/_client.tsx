@@ -18,291 +18,76 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ChevronLeft, GraduationCap, Phone, Users } from 'lucide-react';
-import { STUDENT_SHEET_MAP } from '../student-sheet-map';
-import { STUDENT_ROSTER_IMPORT } from '../student-roster-import';
-import { LEGACY_STUDENT_ROSTER_IMPORT } from '../legacy-student-roster-import';
-import { StudentProgress } from './_components/student-progress';
+import { ChevronLeft, GraduationCap, Users } from 'lucide-react';
 import { decodeShgSlug } from '@/lib/shg-slug';
+import { SHEET_ID, STUDENT_LIST_GID } from '@/lib/config';
+import { groupStudentsByCode, parseStudentRows, shgCodeFromName, type StudentRosterEntry } from '@/lib/students';
 
-type StudentRecord = {
-  id: string;
-  registrationId?: string;
-  slNo: number;
-  name: string;
-  mother: string;
-  father: string;
-  grade: string;
-  phone: string;
-};
-
-type RosterMetadata = {
-  region?: string;
-  branch?: string;
-  shgtcId?: string;
-  shgtcName?: string;
-  timing?: string;
-};
-
-const ENV_STUDENT_SHEET_GID = process.env.NEXT_PUBLIC_STUDENT_SHEET_GID || '0';
-const ENV_STUDENT_SHEET_SHG_COLUMN = process.env.NEXT_PUBLIC_STUDENT_SHEET_SHG_COLUMN || 'SHG Name';
-
-const normalizeKey = (value?: string) => (value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
-
-const STUDENT_NAME_FIELDS = [
-  'Student Name',
-  'Children Name',
-  'Chilren Name',
-  'Child Name',
-  'Name OF Student',
-  'Name Of Student',
-  'Name of student',
-  'Student Name ',
-  'Name',
-  'Learner Name',
-];
-
-const readField = (row: Record<string, any>, candidates: string[], fallback: any = '') => {
-  const entries = Object.entries(row ?? {});
-  for (const candidate of candidates) {
-    const target = normalizeKey(candidate);
-    const match = entries.find(([key]) => normalizeKey(key) === target);
-    if (match) return match[1];
-  }
-  return fallback;
-};
-
-const cellText = (value: any) => String(value ?? '').trim();
-const normalizeCell = (value: any) => cellText(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-
-const detectHeaderIndex = (matrix: any[][]) => {
-  let bestIdx = -1;
-  let bestScore = 0;
-  for (let i = 0; i < matrix.length; i += 1) {
-    const normalized = matrix[i].map(normalizeCell);
-    const score = [
-      normalized.some((v) => /^s\s*no$/.test(v) || (v.startsWith('s') && v.includes('no'))),
-      normalized.some((v) => v.includes('student') || v.includes('children') || v.includes('child') || v.includes('learner')),
-      normalized.some((v) => v.includes('mother')),
-      normalized.some((v) => v.includes('father')),
-      normalized.some((v) => v.includes('class') || v.includes('grade')),
-    ].filter(Boolean).length;
-
-    if (score > bestScore && score >= 2) {
-      bestIdx = i;
-      bestScore = score;
-      if (score === 5) break;
-    }
-  }
-  return bestIdx;
-};
-
-const META_KEY_MAP: Record<string, keyof RosterMetadata> = {
-  'region name': 'region',
-  'branch name': 'branch',
-  'shgtc id': 'shgtcId',
-  'shgtc name': 'shgtcName',
-  'shgtc timing': 'timing',
-};
-
-const extractStudentTableRows = (rows: Record<string, any>[]) => {
-  const metadata: RosterMetadata = {};
-  if (!rows.length) return { rows: [], metadata };
-  const keyOrder = Object.keys(rows[0] ?? {});
-  if (!keyOrder.length) return { rows, metadata };
-
-  const matrix = rows.map((row) => keyOrder.map((key) => row[key]));
-  const headerIdx = detectHeaderIndex(matrix);
-  if (headerIdx < 0) {
-    return { rows, metadata };
-  }
-
-  if (headerIdx > 0) {
-    for (let i = 0; i < headerIdx; i += 1) {
-      const rowValues = matrix[i];
-      const key = cellText(rowValues[1] ?? rowValues[0]);
-      const value = cellText(rowValues[2] ?? rowValues[1]);
-      const normalized = normalizeCell(key);
-      const metaKey = META_KEY_MAP[normalized];
-      if (metaKey && value) {
-        metadata[metaKey] = value;
-      }
-    }
-  }
-
-  const headerRow = matrix[headerIdx];
-  const headerValues = headerRow.map((value, idx) => {
-    const text = cellText(value);
-    if (text) return text;
-
-    if (idx === 0) return 'S.No.';
-    const prevText = cellText(headerRow[idx - 1]).toLowerCase();
-    if (prevText.includes('father')) return 'Class';
-
-    return `Col${idx + 1}`;
-  });
-
-  const bodyMatrices = matrix.slice(headerIdx + 1);
-
-  const remappedRows: Record<string, any>[] = [];
-  for (const rowValues of bodyMatrices) {
-    const normalized = rowValues.map(normalizeCell);
-    if (normalized.every((v) => !v)) continue;
-    if (normalized.some((v) => v.includes('guardian contact'))) break;
-
-    const row: Record<string, any> = {};
-    for (let i = 0; i < headerValues.length; i += 1) {
-      row[headerValues[i]] = rowValues[i] ?? '';
-    }
-    remappedRows.push(row);
-  }
-
-  return { rows: remappedRows, metadata };
-};
+const normalizeName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const isUrl = (value: string) => /^https?:\/\//i.test(value);
 
 export default function ShgStudentsClient({ params }: { params: { slug: string } }) {
   const shgName = decodeShgSlug(params.slug);
-  const groupCode = shgName.match(/\(\s*(\d{2}:\d{2}:\d{2})\s*\)/)?.[1];
-  const importedStudents: StudentRecord[] = useMemo(() => {
-    const importedRosterRows = groupCode ? STUDENT_ROSTER_IMPORT[groupCode] ?? [] : [];
-    const legacyRosterRows = groupCode ? LEGACY_STUDENT_ROSTER_IMPORT[groupCode] ?? [] : [];
-    return [
-      ...importedRosterRows.map(([registrationId, name, grade], index) => ({
-        id: `${groupCode}-${registrationId}`,
-        registrationId,
-        slNo: index + 1,
-        name,
-        mother: '—',
-        father: '—',
-        grade,
-        phone: '—',
-      })),
-      ...legacyRosterRows.map(([studentNumber, name, grade, mother, father], index) => ({
-        id: `${groupCode}-legacy-${studentNumber}`,
-        slNo: Number(studentNumber) || index + 1,
-        name,
-        mother: mother || '—',
-        father: father || '—',
-        grade,
-        phone: '—',
-      })),
-    ];
-  }, [groupCode]);
+  const groupCode = shgCodeFromName(shgName);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<StudentRosterEntry | null>(null);
 
-  const mappedConfig = useMemo(() => {
-    if (STUDENT_SHEET_MAP[shgName]) return STUDENT_SHEET_MAP[shgName];
-    const normalized = normalizeKey(shgName);
-    const foundEntry = Object.entries(STUDENT_SHEET_MAP).find(([key]) => normalizeKey(key) === normalized);
-    return foundEntry ? foundEntry[1] : undefined;
-  }, [shgName]);
-
-  const sheetId = mappedConfig?.sheetId;
-  const gid = mappedConfig?.gid ?? ENV_STUDENT_SHEET_GID;
-  const mode: 'dedicated' | 'shared' = mappedConfig ? 'dedicated' : 'shared';
-
-  const { rows, loading, enabled, error } = useSheetData({
-    sheetId,
-    gid,
+  const { rows, loading, error, lastUpdatedAt } = useSheetData({
+    sheetId: SHEET_ID,
+    gid: STUDENT_LIST_GID,
+    preferFormatted: true,
     refreshMs: 60000,
-    enabled: Boolean(sheetId),
   });
 
-  const isLoading = Boolean(sheetId && loading && importedStudents.length === 0);
-  const hasLiveSheet = Boolean(sheetId);
-  const hasLiveRoster = hasLiveSheet || importedStudents.length > 0;
-
-  const relevantRows = useMemo(() => {
-    if (!enabled || !sheetId) return [];
-    return mode === 'dedicated'
-      ? rows
-      : rows.filter((row) => {
-          const sheetShg = String(row[ENV_STUDENT_SHEET_SHG_COLUMN] ?? '').trim();
-          return sheetShg && sheetShg.toLowerCase() === shgName.toLowerCase();
-        });
-  }, [rows, enabled, mode, shgName, sheetId]);
-
-  const rosterData = useMemo(() => {
-    if (!enabled || !sheetId) return { rows: [], metadata: {} as RosterMetadata };
-    return extractStudentTableRows(relevantRows as any);
-  }, [relevantRows, enabled, sheetId]);
-
-  const sheetStudents = useMemo(() => {
-    if (!enabled || !sheetId) return [];
-    const tableRows = rosterData.rows;
-
-    const parsed = tableRows.map((row, idx) => {
-      const slNoRaw = readField(row, ['S.No.', 'S.No', 'Sl.No', 'Sl No', 'SL No', 'Sr No', 'Sr.No'], idx + 1);
-      const nameRaw = readField(row, STUDENT_NAME_FIELDS, '');
-
-      const motherRaw = readField(row, [
-        "Mother's Name",
-        'Mother Name',
-        'Mother',
-        "Sitamarhi Darbhanga Bisfi (31:07) 31:07:03 Bisfi 03:00 PM to 05:00 PM Mother's Name",
-        "Azamgarh Bhadsar (07:20) 07:20:03 Bhadsar 03:00 PM to 05:00 PM Mother's Name",
-        "Gorakhpur  Bramhpur (13:05) 13:05:04 bramhpur  06:00 AM to 08:00 AM Mother's Name",
-      ], '—');
-
-      const fatherRaw = readField(row, ["Father's Name", 'Father Name', 'Father'], '—');
-      const classRaw = readField(row, ['Class', 'Grade', 'Std'], '—');
-      const phoneRaw = readField(row, ['Mobile Number', 'Phone', 'Guardian Contact', 'Contact Number'], '—');
-      const registrationId = cellText(readField(row, ['Registration', 'Registration ID', 'Registration No', 'Registration Number'], ''));
-
-      const name = String(nameRaw).trim();
-      return {
-        id: `${groupCode ?? 'legacy'}-${registrationId || idx + 1}`,
-        registrationId: registrationId || undefined,
-        slNo: Number(slNoRaw) || idx + 1,
-        name,
-        mother: String(motherRaw || '—'),
-        father: String(fatherRaw || '—'),
-        grade: String(classRaw || '—'),
-        phone: String(phoneRaw || '—'),
-      };
+  const students = useMemo(() => {
+    const parsed = parseStudentRows(rows);
+    if (groupCode) {
+      const byCode = groupStudentsByCode(parsed);
+      const group = byCode.get(groupCode);
+      if (group?.length) return group;
+    }
+    // Fallback for SHGs without a code: match on the center name token
+    return parsed.filter((s) => {
+      const token = normalizeName(s.shgName);
+      return token && normalizeName(shgName).includes(token);
     });
+  }, [rows, groupCode, shgName]);
 
-    return parsed.filter((s) => s.name);
-  }, [rosterData.rows, enabled, sheetId, groupCode]);
-
-  const students: StudentRecord[] = useMemo(
-    () => importedStudents.length ? importedStudents : hasLiveSheet ? sheetStudents : [],
-    [importedStudents, hasLiveSheet, sheetStudents]
-  );
-  const rosterMetadata = hasLiveSheet && importedStudents.length === 0 ? rosterData.metadata : undefined;
-
-  const metadataItems = useMemo(() => {
-    if (!rosterMetadata) return [];
+  const rosterMetadata = useMemo(() => {
+    const first = students[0];
+    if (!first) return [];
     return [
-      { label: 'Region Name', value: rosterMetadata.region },
-      { label: 'Branch Name', value: rosterMetadata.branch },
-      { label: 'SHGTC ID', value: rosterMetadata.shgtcId },
-      { label: 'SHGTC Name', value: rosterMetadata.shgtcName },
-      { label: 'SHGTC Timing', value: rosterMetadata.timing },
+      { label: 'District', value: first.district },
+      { label: 'Region Name', value: first.region },
+      { label: 'Branch Name', value: first.branch },
+      { label: 'SHGTC ID', value: first.shgCode },
+      { label: 'SHGTC Name', value: first.shgName },
+      { label: 'SHGTC Timing', value: first.timing },
     ].filter((item) => item.value);
-  }, [rosterMetadata]);
+  }, [students]);
 
   const stats = useMemo(() => {
     const total = students.length;
-    const withPhone = students.filter((student) => student.phone && student.phone !== '—').length;
+    const registered = students.filter((s) => s.registrationId).length;
     const classes = students.reduce<Record<string, number>>((acc, student) => {
       const key = student.grade || 'Unassigned';
       return { ...acc, [key]: (acc[key] || 0) + 1 };
     }, {});
     const highlightedClass = Object.entries(classes).sort((a, b) => b[1] - a[1])[0];
-    return { total, withPhone, uniqueClasses: Object.keys(classes).length, highlightedClass };
+    return { total, registered, uniqueClasses: Object.keys(classes).length, highlightedClass };
   }, [students]);
 
   const filteredStudents = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     if (!query) return students;
     return students.filter((student) => {
-      const haystack = [student.slNo, student.registrationId, student.name, student.mother, student.father, student.grade, student.phone]
+      const haystack = [student.slNo, student.registrationId, student.name, student.mother, student.father, student.grade]
         .filter(Boolean).join(' ').toLowerCase();
       return haystack.includes(query);
     });
   }, [students, searchTerm]);
+
+  const isLoading = loading && students.length === 0;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -313,20 +98,18 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
               <ChevronLeft className="h-4 w-4" /> Back to SHGs
             </Link>
             <Badge variant="outline" className="border-emerald-200 text-emerald-700 bg-emerald-50">
-              {importedStudents.length ? 'Imported student list' : enabled ? 'Live sheet sync' : 'Design preview'}
+              Live sheet sync
             </Badge>
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Student roster</p>
             <h1 className="text-3xl font-semibold text-slate-900 mt-1">{shgName}</h1>
             <p className="text-sm text-slate-500 mt-2 max-w-3xl">
-              {importedStudents.length
-                ? 'Live student roster with registration IDs and class levels from the October 2026 expansion list.'
-                : 'Learner directory listing guardian touch points, grade levels, and verified contact numbers.'}
+              Learner directory synced from the Student list sheet — names, classes, registration numbers, attendance and marks update automatically.
             </p>
-            {!!metadataItems.length && (
-              <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {metadataItems.map((item) => (
+            {!!rosterMetadata.length && (
+              <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {rosterMetadata.map((item) => (
                   <div key={item.label} className="rounded-xl border border-slate-200 bg-white/70 px-4 py-3">
                     <dt className="text-xs uppercase tracking-wide text-slate-500">{item.label}</dt>
                     <dd className="text-sm font-medium text-slate-900 mt-1">{item.value}</dd>
@@ -341,12 +124,12 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatTile icon={<Users className="h-5 w-5" />} label="Total students" value={stats.total} subtle="Across this SHG" />
-          <StatTile icon={<Phone className="h-5 w-5" />} label="Reachable guardians" value={`${stats.withPhone}/${stats.total}`} subtle="Numbers on file" />
+          <StatTile icon={<Users className="h-5 w-5" />} label="Registration numbers" value={`${stats.registered}/${stats.total}`} subtle="IDs on file" />
           <StatTile icon={<GraduationCap className="h-5 w-5" />} label="Classes represented" value={stats.uniqueClasses} subtle={stats.highlightedClass ? `${stats.highlightedClass[0]} most common` : '—'} />
-          <StatTile icon={<Users className="h-5 w-5" />} label="Roster status" value={importedStudents.length ? 'Imported' : sheetId ? (isLoading ? 'Refreshing…' : 'Synced') : 'Awaiting sheet'} subtle={importedStudents.length ? 'October 2026 student list' : sheetId ? 'Auto-refreshing every min' : 'Add this SHG to the sheet'} />
+          <StatTile icon={<Users className="h-5 w-5" />} label="Roster status" value={isLoading ? 'Refreshing…' : 'Synced'} subtle={lastUpdatedAt ? `Updated ${new Date(lastUpdatedAt).toLocaleTimeString()}` : 'Auto-refreshing every min'} />
         </div>
 
-        {sheetId && error && (
+        {error && (
           <Card className="shadow-sm border border-rose-200 bg-rose-50">
             <CardContent className="p-4">
               <p className="text-sm font-semibold text-rose-700">Could not load student sheet</p>
@@ -362,91 +145,90 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
           <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-xl">Student directory</CardTitle>
-              <p className="text-sm text-slate-500">{importedStudents.length ? 'Includes student name, registration ID, and class.' : 'Includes Sl.No, parent information, class and contact number.'}</p>
+              <p className="text-sm text-slate-500">Includes Sl.No, class, registration number, guardians, attendance and marksheet.</p>
             </div>
-            {!hasLiveRoster && (
-              <Badge variant="secondary" className="text-xs uppercase tracking-wide">Roster sheet not connected</Badge>
-            )}
           </CardHeader>
 
           <Separator />
-          {hasLiveRoster ? (
-            <CardContent className="border-b">
-              <div className="relative">
-                <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search students, registration ID, class..." className="pl-3" />
-              </div>
-              {searchTerm && (
-                <p className="text-xs text-slate-500 mt-2">Showing {filteredStudents.length} of {students.length} learners</p>
-              )}
-            </CardContent>
-          ) : (
-            <CardContent className="py-16 text-center space-y-3">
-              <div className="text-4xl">🗂️</div>
-              <p className="text-slate-700 font-medium">Roster coming soon</p>
-              <p className="text-sm text-slate-500">Connect this SHG&apos;s Google Sheet to view learner details once it is available.</p>
-            </CardContent>
-          )}
-          {hasLiveRoster && (
-            <ScrollArea className="h-[60vh] pr-3">
-              <Table>
-                <TableHeader className="sticky top-0 bg-white/90 backdrop-blur border-b">
+          <CardContent className="border-b">
+            <div className="relative">
+              <Input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search students, registration ID, class..." className="pl-3" />
+            </div>
+            {searchTerm && (
+              <p className="text-xs text-slate-500 mt-2">Showing {filteredStudents.length} of {students.length} learners</p>
+            )}
+          </CardContent>
+          <ScrollArea className="h-[60vh] pr-3">
+            <Table>
+              <TableHeader className="sticky top-0 bg-white/90 backdrop-blur border-b">
+                <TableRow>
+                  <TableHead className="w-20">Sl. No</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Class</TableHead>
+                  <TableHead>Registration</TableHead>
+                  <TableHead>Mother</TableHead>
+                  <TableHead>Father</TableHead>
+                  <TableHead>Attendance</TableHead>
+                  <TableHead className="text-right">Marksheet</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading && (
                   <TableRow>
-                    <TableHead className="w-20">Sl. No</TableHead>
-                    <TableHead>Name</TableHead>
-                    {!importedStudents.length && <TableHead>Mother</TableHead>}
-                    {!importedStudents.length && <TableHead>Father</TableHead>}
-                    <TableHead>Class</TableHead>
-                    {!importedStudents.length && <TableHead className="text-right">Mobile</TableHead>}
+                    <TableCell colSpan={8} className="h-24">
+                      <div className="animate-pulse space-y-2">
+                        <div className="h-4 bg-slate-200 rounded" />
+                        <div className="h-4 bg-slate-200 rounded w-3/4" />
+                      </div>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {isLoading && (
-                    <TableRow>
-                      <TableCell colSpan={importedStudents.length ? 3 : 6} className="h-24">
-                        <div className="animate-pulse space-y-2">
-                          <div className="h-4 bg-slate-200 rounded" />
-                          <div className="h-4 bg-slate-200 rounded w-3/4" />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {!isLoading && filteredStudents.map((student) => (
-                    <TableRow key={student.id} className="hover:bg-slate-50">
-                      <TableCell className="font-medium text-slate-600">{student.slNo}</TableCell>
-                      <TableCell>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedStudent(student)}
-                          aria-label={`View ${student.name}'s attendance and marksheet`}
-                          className="text-left rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))]"
-                        >
-                          <span className="block font-semibold text-[hsl(var(--primary))] hover:underline">{student.name}</span>
-                          <span className="text-xs text-slate-500">View student progress</span>
-                        </button>
-                      </TableCell>
-                      {!importedStudents.length && <TableCell className="text-sm text-slate-700">{student.mother}</TableCell>}
-                      {!importedStudents.length && <TableCell className="text-sm text-slate-700">{student.father}</TableCell>}
-                      <TableCell>
-                        <Badge variant="outline" className="bg-indigo-50 border-indigo-200 text-indigo-700">{student.grade || 'NA'}</Badge>
-                      </TableCell>
-                      {!importedStudents.length && (
-                        <TableCell className="text-right text-sm font-medium text-slate-900">
-                          {student.phone !== '—' ? student.phone : <span className="text-slate-400">Not shared</span>}
-                        </TableCell>
+                )}
+                {!isLoading && filteredStudents.map((student) => (
+                  <TableRow key={student.id} className="hover:bg-slate-50">
+                    <TableCell className="font-medium text-slate-600">{student.slNo}</TableCell>
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStudent(student)}
+                        aria-label={`View ${student.name}'s details`}
+                        className="text-left rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))]"
+                      >
+                        <span className="block font-semibold text-[hsl(var(--primary))] hover:underline">{student.name}</span>
+                        <span className="text-xs text-slate-500">View student progress</span>
+                      </button>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="bg-indigo-50 border-indigo-200 text-indigo-700">{student.grade || 'NA'}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-slate-700">{student.registrationId || <span className="text-slate-400">—</span>}</TableCell>
+                    <TableCell className="text-sm text-slate-700">{student.mother}</TableCell>
+                    <TableCell className="text-sm text-slate-700">{student.father}</TableCell>
+                    <TableCell className="text-sm text-slate-700">{student.attendance || <span className="text-slate-400">—</span>}</TableCell>
+                    <TableCell className="text-right text-sm font-medium">
+                      {student.marksheet ? (
+                        isUrl(student.marksheet) ? (
+                          <a href={student.marksheet} target="_blank" rel="noreferrer" className="text-[hsl(var(--primary))] hover:underline">
+                            View
+                          </a>
+                        ) : (
+                          <span className="text-slate-900">{student.marksheet}</span>
+                        )
+                      ) : (
+                        <span className="text-slate-400">—</span>
                       )}
-                    </TableRow>
-                  ))}
-                  {!isLoading && filteredStudents.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={importedStudents.length ? 3 : 6} className="h-32 text-center text-slate-500">
-                        {students.length === 0 ? 'No students recorded yet.' : 'No students match your search.'}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!isLoading && filteredStudents.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-32 text-center text-slate-500">
+                      {students.length === 0 ? 'No students recorded yet for this SHG.' : 'No students match your search.'}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </ScrollArea>
         </Card>
 
         <Dialog open={Boolean(selectedStudent)} onOpenChange={(open) => !open && setSelectedStudent(null)}>
@@ -455,7 +237,7 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Student progress · {shgName}</p>
               <DialogTitle className="text-2xl">{selectedStudent?.name ?? 'Student progress'}</DialogTitle>
               <DialogDescription>
-                Review the student profile, attendance history, and marksheets.
+                Review the student profile, attendance, and marksheets.
               </DialogDescription>
             </DialogHeader>
 
@@ -469,17 +251,44 @@ export default function ShgStudentsClient({ params }: { params: { slug: string }
                 <TabsContent value="overview" className="mt-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <StudentDetail label="Class" value={selectedStudent.grade} icon={<GraduationCap className="h-4 w-4" />} />
-                    <StudentDetail label={selectedStudent.registrationId ? 'Registration ID' : 'Sl. No'} value={selectedStudent.registrationId ?? String(selectedStudent.slNo)} icon={<Users className="h-4 w-4" />} />
+                    <StudentDetail label={selectedStudent.registrationId ? 'Registration ID' : 'Sl. No'} value={selectedStudent.registrationId || String(selectedStudent.slNo)} icon={<Users className="h-4 w-4" />} />
                     {selectedStudent.mother !== '—' && <StudentDetail label="Mother" value={selectedStudent.mother} />}
                     {selectedStudent.father !== '—' && <StudentDetail label="Father" value={selectedStudent.father} />}
-                    {selectedStudent.phone !== '—' && <StudentDetail label="Mobile" value={selectedStudent.phone} icon={<Phone className="h-4 w-4" />} />}
+                    {selectedStudent.gender && <StudentDetail label="Gender" value={selectedStudent.gender} />}
+                    {selectedStudent.attendance && <StudentDetail label="Attendance" value={selectedStudent.attendance} />}
                   </div>
                 </TabsContent>
                 <TabsContent value="attendance" className="mt-4">
-                  <StudentProgress student={selectedStudent} section="attendance" />
+                  {selectedStudent.attendance ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Attendance</p>
+                      <p className="mt-1 text-lg font-semibold text-slate-900">{selectedStudent.attendance}</p>
+                      <p className="mt-2 text-xs text-slate-500">Synced from the Student list sheet — updates appear automatically.</p>
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                      No attendance recorded yet. It will appear here once added to the Student list sheet.
+                    </p>
+                  )}
                 </TabsContent>
                 <TabsContent value="marksheets" className="mt-4">
-                  <StudentProgress student={selectedStudent} section="marksheets" />
+                  {selectedStudent.marksheet ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Marksheet</p>
+                      {isUrl(selectedStudent.marksheet) ? (
+                        <a href={selectedStudent.marksheet} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold text-[hsl(var(--primary))] hover:underline">
+                          View marksheet
+                        </a>
+                      ) : (
+                        <p className="mt-1 text-lg font-semibold text-slate-900">{selectedStudent.marksheet}</p>
+                      )}
+                      <p className="mt-2 text-xs text-slate-500">Synced from the Student list sheet — updates appear automatically.</p>
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                      No marksheet recorded yet. It will appear here once added to the Student list sheet.
+                    </p>
+                  )}
                 </TabsContent>
               </Tabs>
             )}

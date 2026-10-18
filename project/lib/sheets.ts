@@ -9,9 +9,12 @@ export async function fetchSheetTabAsObjects(params: {
   sheetId: string;
   gid?: string | number;
   sheet?: string;
+  // When true, prefer the cell's formatted display value (f) over the raw
+  // value (v) — preserves values like "31:07:03" and leading-zero IDs.
+  preferFormatted?: boolean;
   signal?: AbortSignal;
 }): Promise<GvizRowObject[]> {
-  const { sheetId, gid, sheet, signal } = params;
+  const { sheetId, gid, sheet, preferFormatted, signal } = params;
   const base = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`;
   const url =
     sheet !== undefined && sheet !== null && sheet !== ''
@@ -30,10 +33,12 @@ export async function fetchSheetTabAsObjects(params: {
 
   const table = json.table as {
     cols: Array<{ label?: string; id?: string }>;
-    rows: Array<{ c: Array<{ v: any } | null> }>;
+    rows: Array<{ c: Array<{ v: any; f?: any } | null> }>;
   };
 
-  const rawRows: any[][] = (table.rows || []).map((r) => (r.c || []).map((c) => (c ? c.v : null)));
+  const rawRows: any[][] = (table.rows || []).map((r) =>
+    (r.c || []).map((c) => (c ? (preferFormatted && c.f !== undefined && c.f !== null ? c.f : c.v) : null)),
+  );
   const colLabels: string[] = (table.cols || []).map((c) => c.label || c.id || '');
 
   // Determine headers: prefer labeled columns; else use the first data row as headers

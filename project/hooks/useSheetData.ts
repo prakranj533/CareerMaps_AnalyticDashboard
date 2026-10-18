@@ -6,6 +6,7 @@ interface UseSheetDataParams {
   sheetId?: string;
   gid?: string | number;
   sheet?: string;
+  preferFormatted?: boolean;
   refreshMs?: number;
   enabled?: boolean;
 }
@@ -14,6 +15,7 @@ export function useSheetData({
   sheetId,
   gid,
   sheet,
+  preferFormatted,
   refreshMs = 30000,
   enabled = true,
 }: UseSheetDataParams) {
@@ -30,7 +32,7 @@ export function useSheetData({
     if (!isActive || !effectiveSheetId) return;
     try {
       setError(null);
-      const data = await fetchSheetTabAsObjects({ sheetId: effectiveSheetId, gid, sheet, signal });
+      const data = await fetchSheetTabAsObjects({ sheetId: effectiveSheetId, gid, sheet, preferFormatted, signal });
       const cleaned = data.filter((o) => Object.values(o).some((v) => v !== null && v !== ''));
       setRows(cleaned);
       setLastUpdatedAt(new Date());
@@ -66,7 +68,7 @@ export function useSheetData({
       controller.abort();
       if (timer.current) window.clearInterval(timer.current);
     };
-  }, [effectiveSheetId, gid, sheet, refreshMs, isActive]);
+  }, [effectiveSheetId, gid, sheet, preferFormatted, refreshMs, isActive]);
 
   const reload = () => {
     if (!isActive) return Promise.resolve();
