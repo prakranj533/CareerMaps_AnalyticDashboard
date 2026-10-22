@@ -50,8 +50,8 @@ export default function LoginClient() {
             />
           </div>
           <div className="space-y-1">
-            <CardTitle className="text-2xl font-semibold">Use your Google account</CardTitle>
-            <CardDescription>Sign in with Google to access the analytics dashboard</CardDescription>
+            <CardTitle className="text-2xl font-semibold">Careermaps-AI Dashboard</CardTitle>
+            <CardDescription>Sign in with your Google account to access the analytics dashboard</CardDescription>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

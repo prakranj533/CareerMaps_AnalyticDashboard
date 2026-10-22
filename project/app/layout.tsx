@@ -16,7 +16,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Career Maps',
+  title: 'Careermaps-AI Dashboard',
   description: 'Advanced analytics platform with intelligent insights and real-time data processing',
   keywords: 'AI, analytics, dashboard, insights, data visualization, machine learning',
   manifest: '/manifest.webmanifest',
