@@ -5,7 +5,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return request.auth != null
-        && request.auth.token.email in ['prakranj@gmail.com', 'gloryjain9@gmail.com'];
+        && request.auth.token.email in ['prakranj@gmail.com', 'prakranj@1carehealth.co', 'gloryjain9@gmail.com'];
     }
 
     // One doc per Google account, keyed by lowercased email.
